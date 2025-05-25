@@ -55,6 +55,25 @@ Mat4 mat4Identity() {
   return result;
 }
 
+// Helper function for 4x4 matrix multiplication
+Mat4 matrixMultiply(const Mat4& a, const Mat4& b) {
+  Mat4 result = { 0 };
+
+  // Matrix multiplication: result = a * b
+  // Where matrices are stored in column-major order (OpenGL style)
+  for (int col = 0; col < 4; col++) {
+    for (int row = 0; row < 4; row++) {
+      float sum = 0.0f;
+      for (int k = 0; k < 4; k++) {
+        sum += a[k * 4 + row] * b[col * 4 + k];
+      }
+      result[col * 4 + row] = sum;
+    }
+  }
+
+  return result;
+}
+
 // Create orthographic projection matrix
 Mat4 createOrthographicMatrix(float width, float height, float near, float far, float zoom) {
   Mat4 result = { 0 };
@@ -75,33 +94,110 @@ Mat4 createOrthographicMatrix(float width, float height, float near, float far, 
   return result;
 }
 
-// Create simple view matrix for orthographic view with pan support
-Mat4 createOrthographicViewMatrix() {
-  // Simple isometric-like view without perspective distortion
-  Mat4 result = mat4Identity();
+// Helper function for lookAt matrix calculation
+Mat4 mat4LookAt(float eyeX, float eyeY, float eyeZ,
+  float centerX, float centerY, float centerZ,
+  float upX, float upY, float upZ) {
+  // Calculate forward vector
+  float forwardX = centerX - eyeX;
+  float forwardY = centerY - eyeY;
+  float forwardZ = centerZ - eyeZ;
 
-  // Apply rotation to get isometric view
-  float cosX = cos(0.615f);  // ~35.26 degrees
-  float sinX = sin(0.615f);
-  float cosY = cos(0.785f);  // ~45 degrees
-  float sinY = sin(0.785f);
+  // Normalize forward
+  float forwardLength = sqrt(forwardX * forwardX + forwardY * forwardY + forwardZ * forwardZ);
+  if (forwardLength > 0.0f) {
+    forwardX /= forwardLength;
+    forwardY /= forwardLength;
+    forwardZ /= forwardLength;
+  }
 
-  // Rotation around Y axis then X axis for isometric view
-  result[0] = cosY;
-  result[2] = sinY;
-  result[4] = sinX * sinY;
-  result[5] = cosX;
-  result[6] = -sinX * cosY;
-  result[8] = -cosX * sinY;
-  result[9] = sinX;
-  result[10] = cosX * cosY;
+  // Calculate right vector (cross product of forward and up)
+  float rightX = forwardY * upZ - forwardZ * upY;
+  float rightY = forwardZ * upX - forwardX * upZ;
+  float rightZ = forwardX * upY - forwardY * upX;
 
-  // Apply pan offset
-  auto panOffset = camera.getPanOffset();
-  result[12] = panOffset.first;
-  result[13] = panOffset.second;
+  // Normalize right
+  float rightLength = sqrt(rightX * rightX + rightY * rightY + rightZ * rightZ);
+  if (rightLength > 0.0f) {
+    rightX /= rightLength;
+    rightY /= rightLength;
+    rightZ /= rightLength;
+  }
+
+  // Calculate up vector (cross product of right and forward)
+  float newUpX = rightY * (-forwardZ) - rightZ * (-forwardY);
+  float newUpY = rightZ * (-forwardX) - rightX * (-forwardZ);
+  float newUpZ = rightX * (-forwardY) - rightY * (-forwardX);
+
+  Mat4 result = { 0 };
+  result[0] = rightX;   result[1] = newUpX;   result[2] = -forwardX;  result[3] = 0;
+  result[4] = rightY;   result[5] = newUpY;   result[6] = -forwardY;  result[7] = 0;
+  result[8] = rightZ;   result[9] = newUpZ;   result[10] = -forwardZ; result[11] = 0;
+  result[12] = -(rightX * eyeX + rightY * eyeY + rightZ * eyeZ);
+  result[13] = -(newUpX * eyeX + newUpY * eyeY + newUpZ * eyeZ);
+  result[14] = -(-forwardX * eyeX + -forwardY * eyeY + -forwardZ * eyeZ);
+  result[15] = 1;
 
   return result;
+}
+
+// Proper camera panning with lookAt approach
+Mat4 createOrthographicViewMatrixWithLookAt() {
+  float distance = 10.0f; // Base camera distance
+  auto panOffset = camera.getPanOffset();
+
+  // Calculate panned camera position for isometric view
+  // Base isometric position with pan offset
+  float eyeX = distance + panOffset.first;
+  float eyeY = distance + panOffset.second;
+  float eyeZ = distance;
+
+  // Look at point moves with camera to maintain viewing angle
+  float centerX = panOffset.first;
+  float centerY = panOffset.second;
+  float centerZ = 0.0f;
+
+  return mat4LookAt(
+    eyeX, eyeY, eyeZ,           // Camera position (panned)
+    centerX, centerY, centerZ,  // Look at point (also panned)
+    0.0f, 1.0f, 0.0f           // Up vector
+  );
+}
+
+// Alternative: Combined rotation and pan support
+Mat4 createOrthographicViewMatrixWithRotationAndPan() {
+  float distance = 10.0f;
+  auto panOffset = camera.getPanOffset();
+
+  // Get rotation angles (fixed isometric for now)
+  float rotX = 0.615f;  // ~35.26 degrees  
+  float rotY = 0.785f;  // ~45 degrees
+
+  // Calculate rotated camera position
+  float cosX = cos(rotX);
+  float sinX = sin(rotX);
+  float cosY = cos(rotY);
+  float sinY = sin(rotY);
+
+  // Base camera position in isometric view
+  float baseEyeX = distance * cosY;
+  float baseEyeY = distance * sinX * sinY + distance * cosX;
+  float baseEyeZ = distance * (-sinX * cosY) + distance * cosX;
+
+  // Apply pan offset to both camera and look-at point
+  float eyeX = baseEyeX + panOffset.first;
+  float eyeY = baseEyeY + panOffset.second;
+  float eyeZ = baseEyeZ;
+
+  float centerX = panOffset.first;
+  float centerY = panOffset.second;
+  float centerZ = 0.0f;
+
+  return mat4LookAt(
+    eyeX, eyeY, eyeZ,
+    centerX, centerY, centerZ,
+    0.0f, 1.0f, 0.0f
+  );
 }
 
 // Helper function to map value to color (0=blue, 0.5=green, 1=red)
@@ -403,7 +499,7 @@ int main(void)
   GLint projectionLocation = shader.getUniform("projection");
 
   // Setup camera with enhanced settings
-  camera.setMinMaxZoom(0.1f, 100.0f);
+  camera.setMinMaxZoom(0.1f, 500.0f);
   camera.setPanSensitivity(2.0f); // Better pan responsiveness
   camera.setRotationSensitivity(1.5f); // Good rotation speed
 
@@ -421,9 +517,9 @@ int main(void)
 
     shader.bind();
 
-    // Create orthographic projection and view matrices with pan and rotation support
+    // Create orthographic projection and view matrices with proper camera panning
     Mat4 projection = createOrthographicMatrix(width, height, -100.0f, 100.0f, camera.getZoom());
-    Mat4 view = camera.getViewMatrix(); // Use camera's view matrix with rotation support
+    Mat4 view = createOrthographicViewMatrixWithLookAt(); // Use proper camera panning
     Mat4 model = mat4Identity(); // No model transformation needed
 
     // Set matrices

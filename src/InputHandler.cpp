@@ -41,19 +41,19 @@ void InputHandler::keyCallback(GLFWwindow* window, int key, int scancode, int ac
 
   // Arrow key panning
   if (key == GLFW_KEY_LEFT && (action == GLFW_PRESS || action == GLFW_REPEAT)) {
-    camera.pan(-0.1f, 0.0f);
+    camera.pan(-10.0f, 0.0f);
     std::cout << "Pan left" << std::endl;
   }
   if (key == GLFW_KEY_RIGHT && (action == GLFW_PRESS || action == GLFW_REPEAT)) {
-    camera.pan(0.1f, 0.0f);
+    camera.pan(10.0f, 0.0f);
     std::cout << "Pan right" << std::endl;
   }
   if (key == GLFW_KEY_UP && (action == GLFW_PRESS || action == GLFW_REPEAT)) {
-    camera.pan(0.0f, 0.1f);
+    camera.pan(0.0f, 10.0f);
     std::cout << "Pan up" << std::endl;
   }
   if (key == GLFW_KEY_DOWN && (action == GLFW_PRESS || action == GLFW_REPEAT)) {
-    camera.pan(0.0f, -0.1f);
+    camera.pan(0.0f, -10.0f);
     std::cout << "Pan down" << std::endl;
   }
 
