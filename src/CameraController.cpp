@@ -1,13 +1,11 @@
 ﻿#include "CameraController.h"
 #include <algorithm>
 #include <iostream>
-#include <cmath>
 
 CameraController::CameraController()
   : zoomLevel(1.0f), minZoom(0.1f), maxZoom(10.0f), baseCameraDistance(3.0f),
-  rotating(false), lastMouseX(0.0), lastMouseY(0.0),
-  rotationX(0.785f), rotationY(0.785f), rotationSensitivity(0.005f) {
-  // Start with isometric-like angles (45 degrees)
+  panOffsetX(0.0f), panOffsetY(0.0f), panSensitivity(1.0f),
+  rotationYaw(0.785f), rotationPitch(0.615f), rotationSensitivity(1.0f) {
 }
 
 void CameraController::zoomIn(float step) {
@@ -30,57 +28,81 @@ void CameraController::setMinMaxZoom(float minZoom, float maxZoom) {
   zoomLevel = std::clamp(zoomLevel, minZoom, maxZoom);
 }
 
-void CameraController::startRotation(double mouseX, double mouseY) {
-  rotating = true;
-  lastMouseX = mouseX;
-  lastMouseY = mouseY;
+void CameraController::pan(float deltaX, float deltaY) {
+  // Scale pan movement by zoom level and sensitivity
+  float scaledDeltaX = deltaX * panSensitivity / zoomLevel;
+  float scaledDeltaY = deltaY * panSensitivity / zoomLevel;
+
+  panOffsetX += scaledDeltaX;
+  panOffsetY += scaledDeltaY;
+
+  // Optional: Add pan limits to prevent going too far off-screen
+  const float maxPan = 50.0f / zoomLevel;
+  panOffsetX = std::clamp(panOffsetX, -maxPan, maxPan);
+  panOffsetY = std::clamp(panOffsetY, -maxPan, maxPan);
 }
 
-void CameraController::updateRotation(double mouseX, double mouseY) {
-  if (!rotating) return;
-
-  double deltaX = mouseX - lastMouseX;
-  double deltaY = mouseY - lastMouseY;
-
-  rotationY += deltaX * rotationSensitivity; // Horizontal mouse movement = Y rotation
-  rotationX += deltaY * rotationSensitivity; // Vertical mouse movement = X rotation
-
-  // Clamp vertical rotation to prevent flipping
-  rotationX = std::max(-1.4708f, std::min(rotationX, 1.4708f)); // -π/2 + 0.1 and π/2 - 0.1
-
-  lastMouseX = mouseX;
-  lastMouseY = mouseY;
+void CameraController::setPanOffset(float x, float y) {
+  panOffsetX = x;
+  panOffsetY = y;
 }
 
-void CameraController::endRotation() {
-  rotating = false;
+void CameraController::resetPan() {
+  panOffsetX = 0.0f;
+  panOffsetY = 0.0f;
+  std::cout << "Pan reset to center" << std::endl;
+}
+
+void CameraController::rotate(float deltaX, float deltaY) {
+  // Apply rotation with sensitivity
+  rotationYaw += deltaX * rotationSensitivity;
+  rotationPitch += deltaY * rotationSensitivity;
+
+  // Clamp pitch to prevent flipping
+  const float maxPitch = M_PI * 0.49f; // Just under 90 degrees
+  rotationPitch = std::clamp(rotationPitch, -maxPitch, maxPitch);
+
+  // Wrap yaw around 2*PI
+  while (rotationYaw > 2.0f * M_PI) rotationYaw -= 2.0f * M_PI;
+  while (rotationYaw < 0.0f) rotationYaw += 2.0f * M_PI;
+}
+
+void CameraController::setRotation(float yaw, float pitch) {
+  rotationYaw = yaw;
+  rotationPitch = pitch;
+}
+
+void CameraController::resetRotation() {
+  rotationYaw = 0.785f;   // ~45 degrees default
+  rotationPitch = 0.615f; // ~35 degrees default  
+  std::cout << "Rotation reset to isometric view" << std::endl;
 }
 
 Mat4 CameraController::getViewMatrix() const {
-  float distance = baseCameraDistance / zoomLevel;
-  return createRotatedViewMatrix(distance);
+  float distance = baseCameraDistance / zoomLevel; // Inverse relationship for intuitive zoom
+  return createIsometricViewMatrix(distance, panOffsetX, panOffsetY, rotationYaw, rotationPitch);
 }
 
 Mat4 CameraController::getProjectionMatrix(float aspect, float fov, float nearPlane, float farPlane) const {
   return mat4Perspective(fov, aspect, nearPlane, farPlane);
 }
 
-Mat4 CameraController::createRotatedViewMatrix(float distance) const {
-  // Calculate camera position based on rotation angles
-  float eyeX = distance * cos(rotationX) * sin(rotationY);
-  float eyeY = distance * sin(rotationX);
-  float eyeZ = distance * cos(rotationX) * cos(rotationY);
+Mat4 CameraController::createIsometricViewMatrix(float distance, float panX, float panY, float yaw, float pitch) {
+  // Calculate camera position based on spherical coordinates
+  float cosYaw = cos(yaw);
+  float sinYaw = sin(yaw);
+  float cosPitch = cos(pitch);
+  float sinPitch = sin(pitch);
 
-  return mat4LookAt(eyeX, eyeY, eyeZ,  // eye position
-    0.0f, 0.0f, 0.0f,  // look at center
-    0.0f, 1.0f, 0.0f); // up vector
-}
+  // Position camera at distance with rotation
+  float eyeX = distance * cosPitch * cosYaw;
+  float eyeY = distance * sinPitch;
+  float eyeZ = distance * cosPitch * sinYaw;
 
-Mat4 CameraController::createIsometricViewMatrix(float distance) {
-  // Isometric view: camera positioned at equal distance on all axes
-  return mat4LookAt(distance, distance, distance,  // eye position
-    0.0f, 0.0f, 0.0f,             // look at center
-    0.0f, 1.0f, 0.0f);            // up vector
+  // Look at center with pan offset
+  return mat4LookAt(eyeX, eyeY, eyeZ,
+    panX, panY, 0.0f,                              // look at center with pan offset
+    0.0f, 1.0f, 0.0f);                            // up vector
 }
 
 Mat4 CameraController::createPerspectiveViewMatrix(float eyeX, float eyeY, float eyeZ,
